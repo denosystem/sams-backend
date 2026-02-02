@@ -2,9 +2,9 @@ name: Node.js CI (SAMS Backend)
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
   backend:
@@ -14,6 +14,10 @@ jobs:
       matrix:
         node-version: [18.x, 20.x]
 
+    defaults:
+      run:
+        shell: bash
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -22,19 +26,22 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          cache: "npm"
+          cache: npm
           cache-dependency-path: backend/package-lock.json
 
       - name: Install dependencies
         working-directory: backend
         run: npm ci
 
-      # This checks your project can be required/loaded without crashing.
-      - name: Smoke test (load server file)
+      # ✅ Best smoke test for your current server.js style (with app.listen)
+      - name: Smoke test (start server briefly then exit)
         working-directory: backend
-        run: node -e "require('./server.js'); console.log('Server file loads OK');"
-
-      # Optional: run tests if you add them later
-      # - name: Run tests
-      #   working-directory: backend
-      #   run: npm test
+        env:
+          PORT: 5050
+          NODE_ENV: test
+        run: |
+          node server.js &
+          SERVER_PID=$!
+          sleep 2
+          kill $SERVER_PID
+          echo "✅ Server started and stopped successfully"
