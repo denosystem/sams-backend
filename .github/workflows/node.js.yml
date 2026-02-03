@@ -1,0 +1,47 @@
+name: Node.js CI (SAMS Backend)
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm ci
+
+      # ✅ Best smoke test for your current server.js style (with app.listen)
+      - name: Smoke test (start server briefly then exit)
+        working-directory: backend
+        env:
+          PORT: 5050
+          NODE_ENV: test
+        run: |
+          node server.js &
+          SERVER_PID=$!
+          sleep 2
+          kill $SERVER_PID
+          echo "✅ Server started and stopped successfully"
