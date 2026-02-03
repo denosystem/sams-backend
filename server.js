@@ -2,6 +2,11 @@ const express = require("express");
 const cors = require("cors");
 
 const studentRoutes = require("./routes/studentRoutes");
+const teacherRoutes = require("./routes/teacherRoutes");
+const sessionRoutes = require("./routes/sessionRoutes");
+const attendanceRoutes = require("./routes/attendanceRoutes");
+
+
 
 const app = express();
 
@@ -18,6 +23,11 @@ app.get("/", (req, res) => {
 
 /* STUDENTS ROUTE */
 app.use("/students", studentRoutes);
+app.use("/teachers", teacherRoutes);
+app.use("/sessions", sessionRoutes);
+app.use("/attendance", attendanceRoutes);
+
+
 
 /* HEALTH */
 app.get("/health", (req, res) => {
