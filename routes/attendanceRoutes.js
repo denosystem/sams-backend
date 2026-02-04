@@ -2,13 +2,11 @@ const express = require("express");
 const router = express.Router();
 
 const {
-  checkIn,
-  getSessionAttendance,
-  getStudentAttendance
+  markAttendance,
+  getAttendanceBySession
 } = require("../controllers/attendanceController");
 
-router.post("/checkin", checkIn);
-router.get("/session/:sessionId", getSessionAttendance);
-router.get("/student/:studentId", getStudentAttendance);
+router.post("/", markAttendance);
+router.get("/session/:sessionId", getAttendanceBySession);
 
 module.exports = router;

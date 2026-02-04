@@ -1,33 +1,75 @@
-const path = require("path");
-const { readJSON, writeJSON } = require("../utils/jsonDb");
+const { readJson, writeJson, genId, schoolFile, ensureSchoolDataFiles } = require("../utils/jsonDb");
 
-const studentsFile = path.join(__dirname, "../data/students.json");
-
+/**
+ * GET /students
+ * Header: x-school-key: SCH-xxxx
+ */
 const getStudents = (req, res) => {
-  const students = readJSON(studentsFile, []);
+  const schoolId = req.school.schoolId;
+
+  // make sure this school has its own JSON files created
+  ensureSchoolDataFiles(schoolId);
+
+  const studentsFile = schoolFile(schoolId, "students.json");
+  const students = readJson(studentsFile, []);
+
   res.json({
     message: "Students fetched successfully",
-    students
+    schoolId,
+    count: students.length,
+    students,
   });
 };
 
+/**
+ * POST /students
+ * Header: x-school-key: SCH-xxxx
+ * body: { fullName, admissionNo, classId OR classes:[...], ... }
+ */
 const addStudent = (req, res) => {
-  const students = readJSON(studentsFile, []);
+  const schoolId = req.school.schoolId;
+
+  ensureSchoolDataFiles(schoolId);
+
+  const studentsFile = schoolFile(schoolId, "students.json");
+  const students = readJson(studentsFile, []);
+
+  const body = req.body || {};
+
+  // Basic validation (you can expand later)
+  if (!body.fullName) {
+    return res.status(400).json({ message: "fullName is required" });
+  }
+  if (!body.admissionNo) {
+    return res.status(400).json({ message: "admissionNo is required" });
+  }
+
+  // Prevent duplicates inside the SAME school
+  const exists = students.find((s) => s.admissionNo === body.admissionNo);
+  if (exists) {
+    return res.status(409).json({
+      message: "Student with that admissionNo already exists in this school",
+      student: exists,
+    });
+  }
+
   const newStudent = {
-    id: Date.now().toString(),
-    ...req.body
+    id: genId("stu"),
+    schoolId, // ✅ ties the record to the school
+    createdAt: new Date().toISOString(),
+    ...body,
   };
 
   students.push(newStudent);
-  writeJSON(studentsFile, students);
+  writeJson(studentsFile, students);
 
   res.status(201).json({
     message: "Student added",
-    student: newStudent
+    student: newStudent,
   });
 };
 
 module.exports = {
   getStudents,
-  addStudent
+  addStudent,
 };
