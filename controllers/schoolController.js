@@ -1,56 +1,132 @@
 const path = require("path");
 const crypto = require("crypto");
-const { readJson, writeJson } = require("../utils/jsonDb");
+const { readJSON, writeJSON } = require("../utils/jsonDb");
 
-const SCHOOLS_FILE = path.join(__dirname, "..", "data", "schools.json");
+const schoolsFile = path.join(__dirname, "../data/schools.json");
 
-function makeSchoolKey() {
-  return "SCH-" + crypto.randomBytes(16).toString("hex");
+function genId(prefix = "sch") {
+  return `${prefix}_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
 }
 
-// POST /schools
-// Header: x-admin-key: MASTER_ADMIN_KEY
-// body: { name }
-const createSchool = (req, res) => {
-  const adminKey = req.header("x-admin-key");
-  if (!adminKey || adminKey !== process.env.MASTER_ADMIN_KEY) {
-    return res.status(403).json({ message: "Forbidden (invalid admin key)" });
-  }
+function generateKey() {
+  // looks nice to email and hard to guess
+  return `SAMS_${crypto.randomBytes(24).toString("hex")}`;
+}
 
-  const { name } = req.body || {};
+function hashKey(key) {
+  return crypto.createHash("sha256").update(key).digest("hex");
+}
+
+// DEV: create a school + return key ONCE
+const createSchool = (req, res) => {
+  const { name, email, phone } = req.body || {};
   if (!name) return res.status(400).json({ message: "name is required" });
 
-  const schools = readJson(SCHOOLS_FILE, []);
-  const id = "school_" + crypto.randomBytes(6).toString("hex");
-  const key = makeSchoolKey();
+  const schools = readJSON(schoolsFile, []);
 
-  const school = { id, name, key, createdAt: new Date().toISOString() };
+  const id = genId("school");
+  const apiKey = generateKey();
+  const keyHash = hashKey(apiKey);
+
+  const school = {
+    id,
+    name,
+    email: email || null,
+    phone: phone || null,
+    keyHash,
+    active: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
 
   schools.push(school);
-  writeJson(SCHOOLS_FILE, schools);
+  writeJSON(schoolsFile, schools);
 
+  // IMPORTANT: only return the raw key at creation time
   return res.status(201).json({
-    message: "School created",
-    school: { id: school.id, name: school.name },
-    schoolKey: school.key,
+    message: "School created. Save the key now (it will not be shown again).",
+    school: {
+      id: school.id,
+      name: school.name,
+      email: school.email,
+      phone: school.phone,
+      active: school.active,
+      createdAt: school.createdAt
+    },
+    schoolKey: apiKey
   });
 };
 
-// GET /schools/me
-// Header: x-school-key
+// DEV: list schools (no key returned)
+const listSchools = (req, res) => {
+  const schools = readJSON(schoolsFile, []);
+  const safe = schools.map((s) => ({
+    id: s.id,
+    name: s.name,
+    email: s.email,
+    phone: s.phone,
+    active: s.active,
+    createdAt: s.createdAt,
+    updatedAt: s.updatedAt
+  }));
+  res.json({ message: "Schools fetched", schools: safe });
+};
+
+// DEV: disable or enable school
+const setSchoolActive = (req, res) => {
+  const { schoolId } = req.params;
+  const { active } = req.body || {};
+
+  if (typeof active !== "boolean") {
+    return res.status(400).json({ message: "active must be true or false" });
+  }
+
+  const schools = readJSON(schoolsFile, []);
+  const idx = schools.findIndex((s) => s.id === schoolId);
+  if (idx === -1) return res.status(404).json({ message: "School not found" });
+
+  schools[idx].active = active;
+  schools[idx].updatedAt = new Date().toISOString();
+  writeJSON(schoolsFile, schools);
+
+  res.json({
+    message: "School status updated",
+    school: { id: schools[idx].id, name: schools[idx].name, active: schools[idx].active }
+  });
+};
+
+// DEV: rotate key (returns new key ONCE)
+const rotateSchoolKey = (req, res) => {
+  const { schoolId } = req.params;
+
+  const schools = readJSON(schoolsFile, []);
+  const idx = schools.findIndex((s) => s.id === schoolId);
+  if (idx === -1) return res.status(404).json({ message: "School not found" });
+
+  const newKey = generateKey();
+  schools[idx].keyHash = hashKey(newKey);
+  schools[idx].updatedAt = new Date().toISOString();
+  writeJSON(schoolsFile, schools);
+
+  res.json({
+    message: "Key rotated. Save the new key now (it will not be shown again).",
+    school: { id: schools[idx].id, name: schools[idx].name, active: schools[idx].active },
+    schoolKey: newKey
+  });
+};
+
+// SCHOOL (using x-school-key): get "my school"
 const getMySchool = (req, res) => {
-  const key = req.header("x-school-key");
-  if (!key) return res.status(401).json({ message: "Missing x-school-key" });
-
-  const schools = readJson(SCHOOLS_FILE, []);
-  const school = schools.find((s) => s.key === key);
-  if (!school) return res.status(403).json({ message: "Invalid school key" });
-
-  return res.json({
-    id: school.id,
-    name: school.name,
-    createdAt: school.createdAt,
+  res.json({
+    message: "School verified",
+    school: req.school
   });
 };
 
-module.exports = { createSchool, getMySchool };
+module.exports = {
+  createSchool,
+  listSchools,
+  setSchoolActive,
+  rotateSchoolKey,
+  getMySchool
+};

@@ -1,75 +1,71 @@
-const { readJson, writeJson, genId, schoolFile, ensureSchoolDataFiles } = require("../utils/jsonDb");
+const path = require("path");
+const crypto = require("crypto");
+const { readJSON, writeJSON } = require("../utils/jsonDb");
 
-/**
- * GET /students
- * Header: x-school-key: SCH-xxxx
- */
+const studentsFile = path.join(__dirname, "../data/students.json");
+
+function genId(prefix = "stu") {
+  return `${prefix}_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
+}
+
 const getStudents = (req, res) => {
-  const schoolId = req.school.schoolId;
+  const students = readJSON(studentsFile, []);
+  const mySchoolId = req.school.id;
 
-  // make sure this school has its own JSON files created
-  ensureSchoolDataFiles(schoolId);
-
-  const studentsFile = schoolFile(schoolId, "students.json");
-  const students = readJson(studentsFile, []);
+  const filtered = students.filter((s) => s.schoolId === mySchoolId);
 
   res.json({
     message: "Students fetched successfully",
-    schoolId,
-    count: students.length,
-    students,
+    school: req.school,
+    count: filtered.length,
+    students: filtered
   });
 };
 
-/**
- * POST /students
- * Header: x-school-key: SCH-xxxx
- * body: { fullName, admissionNo, classId OR classes:[...], ... }
- */
 const addStudent = (req, res) => {
-  const schoolId = req.school.schoolId;
+  const mySchoolId = req.school.id;
 
-  ensureSchoolDataFiles(schoolId);
-
-  const studentsFile = schoolFile(schoolId, "students.json");
-  const students = readJson(studentsFile, []);
-
-  const body = req.body || {};
-
-  // Basic validation (you can expand later)
-  if (!body.fullName) {
-    return res.status(400).json({ message: "fullName is required" });
-  }
-  if (!body.admissionNo) {
-    return res.status(400).json({ message: "admissionNo is required" });
+  const { fullName, admissionNo, className, phone } = req.body || {};
+  if (!fullName || !admissionNo) {
+    return res.status(400).json({ message: "fullName and admissionNo are required" });
   }
 
-  // Prevent duplicates inside the SAME school
-  const exists = students.find((s) => s.admissionNo === body.admissionNo);
-  if (exists) {
-    return res.status(409).json({
-      message: "Student with that admissionNo already exists in this school",
-      student: exists,
-    });
-  }
+  const students = readJSON(studentsFile, []);
+
+  // prevent duplicates per school
+  const exists = students.find(
+    (s) => s.schoolId === mySchoolId && String(s.admissionNo).toLowerCase() === String(admissionNo).toLowerCase()
+  );
+  if (exists) return res.status(409).json({ message: "Student already exists for this school (admissionNo)" });
 
   const newStudent = {
-    id: genId("stu"),
-    schoolId, // ✅ ties the record to the school
-    createdAt: new Date().toISOString(),
-    ...body,
+    id: genId("student"),
+    schoolId: mySchoolId,
+    fullName,
+    admissionNo,
+    className: className || null,
+    phone: phone || null,
+
+    // biometrics placeholder (we will update later in mobile app)
+    biometric: {
+      fingerprintTemplate: null,
+      faceTemplate: null,
+      updatedAt: null
+    },
+
+    createdAt: new Date().toISOString()
   };
 
   students.push(newStudent);
-  writeJson(studentsFile, students);
+  writeJSON(studentsFile, students);
 
   res.status(201).json({
     message: "Student added",
-    student: newStudent,
+    student: newStudent
   });
 };
 
 module.exports = {
   getStudents,
-  addStudent,
+  addStudent
 };
