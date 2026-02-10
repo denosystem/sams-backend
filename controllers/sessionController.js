@@ -1,190 +1,161 @@
-const jwt = require("jsonwebtoken");
-const {
-  readJson,
-  writeJson,
-  genId,
-  schoolFile,
-  ensureSchoolDataFiles,
-} = require("../utils/jsonDb");
+const Session = require("../models/Session");
+const Attendance = require("../models/Attendance");
+const { makeQrToken, qrToPngBuffer } = require("../utils/qr");
+const { distanceMeters } = require("../utils/geo");
 
-function required(v, name) {
-  if (v === undefined || v === null || v === "") return `${name} is required`;
-  return null;
-}
+const createSession = async (req, res) => {
+  try {
+    if (req.user.role !== "TEACHER") {
+      return res.status(403).json({ ok: false, error: "Only TEACHER can create session" });
+    }
 
-function studentInClass(student, classId) {
-  if (!student) return false;
-  if (student.classId && student.classId === classId) return true;
-  if (Array.isArray(student.classes) && student.classes.includes(classId)) return true;
-  return false;
-}
+    const { className, subject, lat, lng, radiusMeters, lateAfterMinutes, minutesValid } = req.body;
 
-const startSession = (req, res) => {
-  const { teacherId, classId, subject, location, radiusMeters, durationMinutes, lateAfterMinutes } =
-    req.body || {};
+    if (!className || !subject || lat == null || lng == null) {
+      return res.status(400).json({ ok: false, error: "className, subject, lat, lng required" });
+    }
 
-  const e1 = required(teacherId, "teacherId");
-  const e2 = required(classId, "classId");
-  const e3 = required(subject, "subject");
-  if (e1 || e2 || e3) return res.status(400).json({ message: e1 || e2 || e3 });
+    const validMins = minutesValid ? Number(minutesValid) : 20;
+    const expiresAt = new Date(Date.now() + validMins * 60 * 1000);
 
-  const secret = process.env.JWT_SECRET;
-  if (!secret) return res.status(500).json({ message: "JWT_SECRET missing in backend/.env" });
-
-  const schoolId = req.school.schoolId;
-  ensureSchoolDataFiles(schoolId);
-
-  const SESSIONS_FILE = schoolFile(schoolId, "sessions.json");
-  const sessions = readJson(SESSIONS_FILE, []);
-
-  const id = genId("sess");
-  const now = new Date();
-
-  const duration = Number(durationMinutes || 10);
-  const expiresAt = new Date(now.getTime() + duration * 60 * 1000);
-
-  const session = {
-    id,
-    schoolId,
-    teacherId,
-    classId,
-    subject,
-
-    status: "active",
-    startedAt: now.toISOString(),
-    endedAt: null,
-
-    expiresAt: expiresAt.toISOString(),
-    lateAfterMinutes: Number(lateAfterMinutes || 10),
-
-    location:
-      location && typeof location.lat === "number" && typeof location.lng === "number"
-        ? { lat: Number(location.lat), lng: Number(location.lng) }
-        : null,
-    radiusMeters: radiusMeters ? Number(radiusMeters) : null,
-  };
-
-  sessions.push(session);
-  writeJson(SESSIONS_FILE, sessions);
-
-  const qrToken = jwt.sign(
-    {
-      type: "SESSION_QR",
-      schoolId,
-      sessionId: session.id,
-      teacherId: session.teacherId,
-      classId: session.classId,
-      subject: session.subject,
-    },
-    secret,
-    { expiresIn: `${duration}m` }
-  );
-
-  return res.status(201).json({
-    message: "Session started",
-    session,
-    qrToken,
-    expiresInMinutes: duration,
-  });
-};
-
-const endSession = (req, res) => {
-  const { teacherId, sessionId } = req.body || {};
-
-  const e1 = required(teacherId, "teacherId");
-  const e2 = required(sessionId, "sessionId");
-  if (e1 || e2) return res.status(400).json({ message: e1 || e2 });
-
-  const schoolId = req.school.schoolId;
-  ensureSchoolDataFiles(schoolId);
-
-  const SESSIONS_FILE = schoolFile(schoolId, "sessions.json");
-  const STUDENTS_FILE = schoolFile(schoolId, "students.json");
-  const ATTENDANCE_FILE = schoolFile(schoolId, "attendance.json");
-
-  const sessions = readJson(SESSIONS_FILE, []);
-  const students = readJson(STUDENTS_FILE, []);
-  const attendance = readJson(ATTENDANCE_FILE, []);
-
-  const s = sessions.find((x) => x.id === sessionId);
-  if (!s) return res.status(404).json({ message: "Session not found" });
-
-  if (s.teacherId !== teacherId) return res.status(403).json({ message: "Not allowed" });
-  if (s.status !== "active") return res.status(400).json({ message: "Session already ended" });
-
-  s.status = "ended";
-  s.endedAt = new Date().toISOString();
-  writeJson(SESSIONS_FILE, sessions);
-
-  const classStudents = students.filter((st) => studentInClass(st, s.classId));
-
-  const checkedInIds = new Set(
-    attendance
-      .filter((a) => a.sessionId === s.id && (a.status === "present" || a.status === "late"))
-      .map((a) => a.studentId)
-  );
-
-  let absentsMarked = 0;
-
-  for (const st of classStudents) {
-    if (checkedInIds.has(st.id)) continue;
-
-    const exists = attendance.find((a) => a.sessionId === s.id && a.studentId === st.id);
-    if (exists) continue;
-
-    attendance.push({
-      id: genId("att"),
-      schoolId,
-      sessionId: s.id,
-      studentId: st.id,
-      teacherId: s.teacherId,
-      classId: s.classId,
-      subject: s.subject,
-
-      status: "absent",
-      checkedInAt: null,
-      markedAt: new Date().toISOString(),
-
-      capture: { lat: null, lng: null, qrVerified: false, biometricProof: null },
+    const session = await Session.create({
+      schoolId: req.user.schoolId,
+      teacherId: req.user._id,
+      departmentId: req.user.departmentId || null,
+      className,
+      subject,
+      level: 1,
+      qrToken: makeQrToken(),
+      expiresAt,
+      location: { lat: Number(lat), lng: Number(lng) },
+      radiusMeters: radiusMeters ? Number(radiusMeters) : 60,
+      lateAfterMinutes: lateAfterMinutes ? Number(lateAfterMinutes) : 10,
+      status: "ACTIVE"
     });
 
-    absentsMarked++;
+    res.status(201).json({
+      ok: true,
+      session,
+      qrPayload: { sessionId: session._id, qrToken: session.qrToken }
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
-
-  writeJson(ATTENDANCE_FILE, attendance);
-
-  return res.json({
-    message: "Session ended",
-    session: s,
-    absentsMarked,
-  });
 };
 
-const getSession = (req, res) => {
-  const { sessionId } = req.params;
+const getSessionQrPng = async (req, res) => {
+  try {
+    const { sessionId } = req.params;
 
-  const schoolId = req.school.schoolId;
-  ensureSchoolDataFiles(schoolId);
+    const session = await Session.findOne({ _id: sessionId, schoolId: req.user.schoolId }).lean();
+    if (!session) return res.status(404).json({ ok: false, error: "Session not found" });
 
-  const SESSIONS_FILE = schoolFile(schoolId, "sessions.json");
-  const sessions = readJson(SESSIONS_FILE, []);
-  const s = sessions.find((x) => x.id === sessionId);
+    // teacher can only view their own session
+    if (req.user.role === "TEACHER" && String(session.teacherId) !== String(req.user._id)) {
+      return res.status(403).json({ ok: false, error: "Not your session" });
+    }
 
-  if (!s) return res.status(404).json({ message: "Session not found" });
-  return res.json({ session: s });
+    const payload = { sessionId: session._id.toString(), qrToken: session.qrToken };
+    const png = await qrToPngBuffer(payload);
+
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(200).send(png);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
 };
 
-const getActiveSessionsByTeacher = (req, res) => {
-  const { teacherId } = req.params;
+const endSession = async (req, res) => {
+  try {
+    if (req.user.role !== "TEACHER") return res.status(403).json({ ok: false, error: "Only TEACHER" });
+    const { sessionId } = req.params;
 
-  const schoolId = req.school.schoolId;
-  ensureSchoolDataFiles(schoolId);
+    const session = await Session.findOne({
+      _id: sessionId,
+      schoolId: req.user.schoolId,
+      teacherId: req.user._id
+    });
 
-  const SESSIONS_FILE = schoolFile(schoolId, "sessions.json");
-  const sessions = readJson(SESSIONS_FILE, []);
-  const active = sessions.filter((s) => s.teacherId === teacherId && s.status === "active");
+    if (!session) return res.status(404).json({ ok: false, error: "Session not found" });
 
-  return res.json({ teacherId, count: active.length, sessions: active });
+    session.status = "ENDED";
+    await session.save();
+
+    res.json({ ok: true, message: "Session ended", session });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
 };
 
-module.exports = { startSession, endSession, getSession, getActiveSessionsByTeacher };
+const checkIn = async (req, res) => {
+  try {
+    if (req.user.role !== "STUDENT") {
+      return res.status(403).json({ ok: false, error: "Only STUDENT can check in" });
+    }
+
+    const { sessionId, qrToken, lat, lng, method } = req.body;
+    if (!sessionId || !qrToken || lat == null || lng == null) {
+      return res.status(400).json({ ok: false, error: "sessionId, qrToken, lat, lng required" });
+    }
+
+    const session = await Session.findOne({ _id: sessionId, schoolId: req.user.schoolId });
+    if (!session) return res.status(404).json({ ok: false, error: "Session not found" });
+    if (session.status !== "ACTIVE") return res.status(400).json({ ok: false, error: "Session not active" });
+    if (new Date() > session.expiresAt) return res.status(400).json({ ok: false, error: "QR expired" });
+    if (session.qrToken !== qrToken) return res.status(401).json({ ok: false, error: "Invalid QR token" });
+
+    if (req.user.className !== session.className) {
+      return res.status(403).json({ ok: false, error: "Not your class session" });
+    }
+
+    const d = distanceMeters(session.location.lat, session.location.lng, Number(lat), Number(lng));
+    if (d > session.radiusMeters) {
+      return res.status(403).json({ ok: false, error: `Too far from class: ${Math.round(d)}m` });
+    }
+
+    const minutesFromStart = Math.floor((Date.now() - session.createdAt.getTime()) / 60000);
+    const status = minutesFromStart > session.lateAfterMinutes ? "LATE" : "PRESENT";
+
+    const attendance = await Attendance.create({
+      schoolId: req.user.schoolId,
+      sessionId: session._id,
+      studentId: req.user._id,
+      status,
+      checkedInAt: new Date(),
+      checkinLocation: { lat: Number(lat), lng: Number(lng) },
+      method: method || "QR"
+    });
+
+    res.status(201).json({ ok: true, message: "Checked in", attendance });
+  } catch (err) {
+    if (String(err.message).includes("E11000")) {
+      return res.status(409).json({ ok: false, error: "Already checked in" });
+    }
+    res.status(500).json({ ok: false, error: err.message });
+  }
+};
+
+const listSessionAttendance = async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    const session = await Session.findOne({ _id: sessionId, schoolId: req.user.schoolId });
+    if (!session) return res.status(404).json({ ok: false, error: "Session not found" });
+
+    if (req.user.role === "TEACHER" && String(session.teacherId) !== String(req.user._id)) {
+      return res.status(403).json({ ok: false, error: "Not your session" });
+    }
+
+    const records = await Attendance.find({ sessionId: session._id })
+      .populate("studentId", "fullName username admissionNo className")
+      .sort({ checkedInAt: 1 })
+      .lean();
+
+    res.json({ ok: true, session, records });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+};
+
+module.exports = { createSession, getSessionQrPng, endSession, checkIn, listSessionAttendance };

@@ -1,20 +1,19 @@
 const express = require("express");
 const router = express.Router();
 
-// ✅ CORRECT PATH
-const {
-  startSession,
-  endSession,
-  getSession
-} = require("../controllers/sessionController");
+const requireAuth = require("../middleware/requireAuth");
+const requireRole = require("../middleware/requireRole");
 
-// Start a new session
-router.post("/start", startSession);
+const { createSession, getSessionQrPng, endSession, checkIn, listSessionAttendance } =
+  require("../controllers/sessionController");
 
-// End an existing session
-router.post("/end/:sessionId", endSession);
+router.post("/", requireAuth, requireRole("TEACHER"), createSession);
+router.get("/:sessionId/qr.png", requireAuth, requireRole("TEACHER", "ADMIN", "HOD"), getSessionQrPng);
 
-// Get session details
-router.get("/:sessionId", getSession);
+router.post("/:sessionId/end", requireAuth, requireRole("TEACHER"), endSession);
+
+router.post("/checkin", requireAuth, requireRole("STUDENT"), checkIn);
+
+router.get("/:sessionId/attendance", requireAuth, requireRole("TEACHER", "ADMIN", "HOD"), listSessionAttendance);
 
 module.exports = router;

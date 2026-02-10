@@ -1,13 +1,14 @@
 const express = require("express");
 const router = express.Router();
 
-const schoolAuth = require("../middleware/schoolAuth");
-const { getStudents, addStudent } = require("../controllers/studentController");
+const developerAuth = require("../middleware/developerAuth");
 
-// protect ALL student routes
-router.use(schoolAuth);
+// ✅ IMPORTANT: DO NOT CALL IT like developerAuth()
+router.use(developerAuth);
 
-router.get("/", getStudents);
-router.post("/", addStudent);
+// test route (so we confirm it works)
+router.get("/ping", (req, res) => {
+  res.json({ ok: true, message: "students route working + developer key verified" });
+});
 
 module.exports = router;
