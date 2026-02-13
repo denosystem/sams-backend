@@ -1,3 +1,5 @@
+《🔥 🇰🇪 TËÇH💻WØRLD🌍🔥  🇰🇪 🚀KE(DM)》
+
 8# 🚀 SAMS — Smart Attendance Management System
 
 SAMS (Smart Attendance Management System) is a multi-school, enterprise-grade attendance platform built to eliminate attendance fraud and digitize institutional operations.
@@ -249,7 +251,8 @@ License-based deployment allows:
 Mukiria Technical Training Institute  
 
 📧 denomacha000000@gmail.com  
-📱 +254703285246  
+📱 +254703285246
+🔥 🇰🇪 TËÇH💻WØRLD🌍🔥  🇰🇪 🚀KE
 
 AI System Developer | Full-Stack Engineer | System Architect
 
