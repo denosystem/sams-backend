@@ -1,4 +1,4 @@
-# 🚀 SAMS — Smart Attendance Management System (Enterprise Edition)
+# 🚀 SAMS — Smart Attendance Management System
 
 SAMS (Smart Attendance Management System) is a multi-school, enterprise-grade attendance platform built to eliminate attendance fraud and digitize institutional operations.
 
