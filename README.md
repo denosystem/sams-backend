@@ -1,4 +1,4 @@
-# 🚀 SAMS — Smart Attendance Management System
+8# 🚀 SAMS — Smart Attendance Management System
 
 SAMS (Smart Attendance Management System) is a multi-school, enterprise-grade attendance platform built to eliminate attendance fraud and digitize institutional operations.
 
@@ -203,13 +203,7 @@ frontend/
 # 🔧 Environment Setup (.env Example)
 
 ```
-PORT=5000
-MONGO_URI=your_mongo_connection_string
-JWT_SECRET=your_secret_key
-DEV_SECRET=developer_master_secret
-EMAIL_USER=your_email
-EMAIL_PASS=your_app_password
-```
+🤫🤫🤫hapo hufai kuonaa😄😁
 
 ---
 
